@@ -181,7 +181,7 @@ def build_inventory_table(current_devices: dict, base_devs: dict, now_iso: str):
     for mac, cur in sorted(current_devices.items()):
         prev = base_devs.get(mac, {})
         first_seen = prev.get("first_seen", now_iso)
-        missed = 0
+        missed = int(prev.get("missed_runs", 0))
         tbl.add_row(
             mac,
             ", ".join(cur.get("ips", [])) or "-",
@@ -299,21 +299,21 @@ def resolve_hostname(ip: str) -> str:
             return name
     except Exception:
         pass
-
-    try:
-        p = subprocess.run(["nbtstat", "-A", ip],
-                           capture_output=True, text=True, timeout=3)
-        # Look for lines like: "MYPC            <00>  UNIQUE      Registered"
-        for line in p.stdout.splitlines():
-            m = re.search(r"^\s*([^\s<]+)\s+<00>\s+UNIQUE", line, re.IGNORECASE)
-            if m:
-                return m.group(1)
-    except Exception:
-        pass
+    if sys.platform.startswith("win"):
+        try:
+            p = subprocess.run(["nbtstat", "-A", ip],
+                            capture_output=True, text=True, timeout=3)
+            # Look for lines like: "MYPC            <00>  UNIQUE      Registered"
+            for line in p.stdout.splitlines():
+                m = re.search(r"^\s*([^\s<]+)\s+<00>\s+UNIQUE", line, re.IGNORECASE)
+                if m:
+                    return m.group(1)
+        except Exception:
+            pass
 
     try:
         p = subprocess.run(["ping", "-a", "-n", "1", ip],
-                           capture_output=True, text=True, timeout=3)
+                        capture_output=True, text=True, timeout=3)
         # "Pinging host.domain [192.168.1.10] with 32 bytes of data:"
         m = re.search(r"Pinging\s+([^\s\[]+)\s+\[", p.stdout)
         if m and m.group(1) and m.group(1) != ip:
@@ -361,18 +361,20 @@ def stream_arp_ports_live(subnet: str, ports: list[int], do_os_scan: bool) -> tu
     hosts: dict[str, str] = {}
 
     # Prepare IPs in the subnet
-    net = ipaddress.ip_network(subnet, strict=False)
-    targets = [str(ip) for ip in net.hosts()]
+    discovered = scan_arp(subnet)
+    targets = list(discovered.keys())
 
     # Do ARP -> (hostname, mac) -> ports -> os, in parallel per-IP
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     def scan_one(ip: str):
+        
+        #check for stop
+        if STOP_REQUESTED:
+            return None
+
         # ARP request to a single IP
-        ans = srp1(Ether(dst="ff:ff:ff:ff:ff:ff")/ARP(pdst=ip), timeout=0.6, verbose=0)
-        if ans is None:
-            return None  # no reply
-        mac = getattr(ans, "hwsrc", None) or getattr(ans, "src", "")
+        mac = discovered.get(ip, "_")
         hostname = resolve_hostname(ip)
 
         # TCP quick check on the configured ports
@@ -396,16 +398,19 @@ def stream_arp_ports_live(subnet: str, ports: list[int], do_os_scan: bool) -> tu
         with ThreadPoolExecutor(max_workers=64) as pool:
             futures = [pool.submit(scan_one, ip) for ip in targets]
             for fut in as_completed(futures):
+                if STOP_REQUESTED:
+                    break
+
                 res = fut.result()
+
                 if res is None:
                     continue
                 row, (ip, mac) = res
                 rows.append(row)
                 hosts[ip] = mac
 
-            
+                #row creation
                 tbl.add_row(*row)
-
     # After live exit, tbl already contains the final rows
     return tbl, hosts
 
@@ -451,7 +456,7 @@ def scan_arp(subnet):
     arp = ARP(pdst=subnet)
     ether = Ether(dst='ff:ff:ff:ff:ff:ff')
     packet = ether / arp
-    result = srp(packet, timeout=2, verbose=2)[0]
+    result = srp(packet, timeout=2, verbose=0)[0]
     
     hosts = {}
     for _, received in result:
@@ -501,22 +506,9 @@ def port_scan(ip, net_info, ports=DEFAULT_PORTS):
     return output
 
 
-def full_host_scan(host, mac_addr, net_info):
+def full_host_scan(host, mac_addr, net_info, ports, do_os_scan):
     """Scan a host fully and log results."""
-    log = f"\n==== Host: {host} | MAC: {mac_addr} ====\n"
-    try:
-        from __main__ import ARGS
-        if getattr(ARGS, "os_scan", False):
-            log += os_scan(host)
-    except Exception:
-        pass
 
-
-    try:
-        from __main__ import ARGS
-        use_ports = getattr(ARGS, "ports", None) or DEFAULT_PORTS
-    except Exception:
-         use_ports = DEFAULT_PORTS
     log += port_scan(host, net_info, ports=use_ports)
     log += f"==== End of {host} ====\n"
 

@@ -1,0 +1,21 @@
+# Logs & reports
+logs/
+reports/
+*.log
+scan_log.txt
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE settings
+.vscode/
+.idea/
+
+# backup files
+skonetscan_bk_*.py
