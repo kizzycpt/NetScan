@@ -1,0 +1,6 @@
+scapy
+python-nmap
+pyfiglet
+rich
+netifaces
+requests

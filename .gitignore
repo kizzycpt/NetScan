@@ -19,3 +19,8 @@ Thumbs.db
 
 # backup files
 skonetscan_bk_*.py
+backup/
+
+#cache
+__pycache__/
+*.pyc
