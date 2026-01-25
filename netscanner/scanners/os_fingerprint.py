@@ -14,7 +14,7 @@ def os_guess_for_table(ip: str, enabled: bool = False) -> str:
 
         if p.returncode != 0:
             # -n means "non-interactive"; if sudo needs a password you'll see it here
-            return "Sudo required"
+            return "[!]Sudo Required.[!]"
 
         # crude parse: look for "OS details:" or "Running:"
         for line in p.stdout.splitlines():
