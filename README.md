@@ -183,4 +183,4 @@ You are responsible for how you use this tool.
 ---
 
 ## License
-Add a license file (MIT recommended) or update this section to match your repo.
+MIT
