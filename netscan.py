@@ -37,7 +37,7 @@ def main():
     elif choice == "3":
         print("Exiting...")
     else:
-        print("[!] Invalid choice.")
-
+        console.print("[red][!]Invalid choice.[!]")
+        
 if __name__ == "__main__":
     main()
