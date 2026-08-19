@@ -1,186 +1,102 @@
-# NetScan (Network Scanner)
+# NetScan
 
-**Network Scanner** is a Python-based LAN discovery + port scanning tool with an optional “IDS mode” that tracks device/port changes over time using a baseline file.
+> **⚠️ Legacy / archived.** This project is no longer actively developed. Its successor is [sauron](https://github.com/kizzycpt/sauron), which supersedes NetScan's scan + IDS functionality with a fuller dashboard. NetScan remains here as a reference snapshot.
 
-> **Ethical Use Only.** Run this only on networks you own or have explicit permission to test.
+A Python LAN discovery and port-scanning tool with an optional **IDS mode** that baselines the network and alerts on changes over time.
+
+> **Authorized use only.** Run this only on networks you own or have explicit permission to test.
 
 ---
 
 ## What it does
 
-### Scan Mode (one-time snapshot)
-- Discovers devices on your local subnet using **ARP**
-- Resolves **hostnames** (best-effort)
-- Checks a configurable list of **common TCP ports**
-- Displays results in a **Rich** table (live/streaming output)
-- Writes logs to a local `logs/` folder
+**Scan mode** — a one-time snapshot:
+- Discovers hosts on the local subnet via **ARP** (scapy)
+- Resolves hostnames (best-effort)
+- Concurrently checks a configurable set of TCP ports per host
+- Streams results into a live **Rich** table
+- Optional OS fingerprinting via nmap
+- Writes a run log to `logs/scan_log.txt`
 
-### IDS Mode (baseline + alerts)
-- Performs a LAN scan repeatedly (example: every 6 hours)
-- Stores a baseline (`state.json`) of:
-  - devices by **MAC**
-  - last seen timestamps
-  - open ports
-  - gateway MAC
-- Generates alerts when it detects:
-  - **new devices**
-  - **ports opened/closed**
-  - **gateway MAC changes**
-  - **IP ⇄ MAC mismatches**
-  - **devices going offline** (missed runs)
+**IDS mode** — baseline plus alerts:
+- Runs a LAN scan on an interval (default every 6 hours)
+- Stores a baseline in `state.json` (devices by MAC, IPs, open ports, gateway MAC, last-seen)
+- Raises alerts on: new devices, ports opened/closed, gateway MAC changes, IP⇄MAC mismatches, and devices going offline across runs
+- Emits a per-run report folder under `logs/reports/<timestamp>/` with `devices.csv`, `report.md`, and `console_tables.txt`
 
 ---
 
-## Project layout
-
-Typical structure:
+## Layout
 
 ```
-NetScan/
-├─ main.py / netscan.py         # entrypoint (menu)
+netscan/
+├─ netscan.py                   # entrypoint (menu + CLI flags)
+├─ state.json                   # IDS baseline (generated)
 ├─ netscanner/
-│  ├─ __init__.py
-│  ├─ config.py                 # constants + paths (logs/reports/default ports)
-│  ├─ state.py                  # baseline read/write helpers (state.json)
+│  ├─ config.py                 # subnet, ports, paths, protocol map
+│  ├─ state.py                  # baseline helpers
 │  ├─ modes/
 │  │  ├─ scan_mode.py           # one-time scan
-│  │  └─ ids_mode.py            # baseline + loop + report generation
+│  │  └─ ids_mode.py            # baseline + loop + reports
 │  ├─ scanners/
 │  │  ├─ arp.py                 # ARP discovery
-│  │  ├─ ports.py               # TCP port checks
-│  │  ├─ live.py                # streaming Rich table updates
-│  │  └─ fingerprint.py         # OS / service hints (optional)
+│  │  ├─ ports.py               # concurrent TCP port checks
+│  │  ├─ live.py                # streaming Rich table
+│  │  ├─ hostnames.py           # hostname resolution
+│  │  └─ os_fingerprint.py      # nmap OS hints
 │  ├─ utils/
-│  │  ├─ hostnames.py           # hostname resolver
-│  │  ├─ netinfo.py             # local/gateway/subnet/public ip helpers
-│  │  └─ log.py                 # file logging helpers
+│  │  ├─ netinfo.py             # local/gateway/subnet/public IP
+│  │  └─ signals.py             # Ctrl-C handling
 │  └─ ui/
-│     └─ tables.py              # Rich table builders
+│     ├─ banner.py
+│     └─ tables.py
 └─ logs/
-   ├─ scan_log.txt              # rolling scan log
-   └─ reports/
-      └─ <timestamp>/
-         ├─ devices.csv
-         ├─ report.md
-         └─ console_tables.txt
+   ├─ scan_log.txt
+   ├─ alerts.log
+   └─ reports/<timestamp>/
 ```
 
 ---
 
 ## Requirements
 
-- Python 3.10+ (newer versions may work)
-- Linux recommended (ARP scanning is simplest)
-- **Nmap** (for OS/service fingerprinting via `python-nmap`)
+- Python 3.10+ (uses `X | None` typing)
+- Linux recommended (ARP needs raw sockets)
+- `nmap` installed for OS fingerprinting
 
-Common Python packages:
-- scapy
-- rich
-- pyfiglet
-- requests
-- netifaces
-- python-nmap
+Python packages: `scapy`, `rich`, `pyfiglet`, `requests`, `netifaces`, `python-nmap`
 
 ---
 
 ## Install
 
-### 1) Clone + virtual environment
 ```bash
 git clone https://github.com/kizzycpt/NetScan
 cd NetScan
-
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-```
-
-### 2) System dependencies (Linux)
-```bash
-sudo apt update
-sudo apt install -y nmap
+sudo pacman -S nmap        # or: sudo apt install nmap
 ```
 
 ---
 
 ## Run
 
-### Menu mode
 ```bash
-python3 main.py
+sudo -E python3 netscan.py            # interactive menu
+sudo -E python3 netscan.py --ids-once # single IDS run
+sudo -E python3 netscan.py --ids-every 6   # IDS loop, every 6 hours
 ```
 
-If your entry file is still named `netscan.py`:
-```bash
-python3 netscan.py
-```
+Menu options: `1` IDS loop (6h) · `2` one-time scan · `3` exit.
 
-### Optional shortcuts (if present in your entry script)
-```bash
-python3 main.py --ids-once
-python3 main.py --ids-every 6
-```
+`sudo -E` is required because ARP scanning needs raw-socket privileges (`CAP_NET_RAW`). Grant the capability to the interpreter instead of using sudo if you prefer.
 
----
-
-## Where logs save
-
-By default, logs are written relative to the project directory:
-
-- Rolling log:
-  - `logs/scan_log.txt`
-- IDS run folders:
-  - `logs/reports/<timestamp>/`
-
-Each IDS run folder typically includes:
-- `devices.csv` (inventory snapshot)
-- `report.md` (human-readable summary)
-- `console_tables.txt` (tables printed to console, saved without ANSI colors)
-
----
-
-## Permissions (important)
-
-### ARP scanning needs raw socket access on Linux
-If you see:
-- `PermissionError: [Errno 1] Operation not permitted`
-
-Run with sudo:
-```bash
-sudo -E python3 main.py
-```
-
-> Why: ARP (Layer 2) requires raw packet privileges.
-
-### OS detection / fingerprinting
-Nmap OS fingerprinting (`-O`) often requires elevated privileges (root). If OS details don’t appear, run the tool with sudo, or use the service-hint fallback (banner/version scan).
-
----
-
-## Troubleshooting
-
-### “circular import” / “partially initialized module”
-This usually happens when:
-- a file inside `netscanner/` imports from the entry script (`netscan.py` / `main.py`), or
-- modules import each other in a loop.
-
-**Rule of thumb**
-- Entry script imports `netscanner.*`
-- `netscanner/*` should **never** import from the entry script
-
-### “ModuleNotFoundError”
-- Ensure your file paths match your import paths (Linux is case-sensitive).
-- Ensure packages have `__init__.py` when needed.
-
----
-
-## Safety + legal disclaimer
-
-This tool is provided for **educational and diagnostic use**.
-Do not scan networks you do not own or have explicit permission to test.
-You are responsible for how you use this tool.
+Defaults (subnet `192.168.1.0/24`, port list) live in `netscanner/config.py`.
 
 ---
 
 ## License
+
 MIT
